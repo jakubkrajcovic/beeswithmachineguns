@@ -24,6 +24,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
+import os
 import bees
 from urlparse import urlparse
 
@@ -63,17 +64,17 @@ commands:
                         action='store', dest='group', type='string', default='default',
                         help="The security group to run the instances under (default: default).")
     up_group.add_option('-z', '--zone',  metavar="ZONE",  nargs=1,
-                        action='store', dest='zone', type='string', default='us-east-1d',
-                        help="The availability zone to start the instances in (default: us-east-1d).")
+                        action='store', dest='zone', type='string', default='ap-southeast-2a',
+                        help="The availability zone to start the instances in (default: ap-southeast-2a).")
     up_group.add_option('-i', '--instance',  metavar="INSTANCE",  nargs=1,
-                        action='store', dest='instance', type='string', default='ami-ff17fb96',
-                        help="The instance-id to use for each server from (default: ami-ff17fb96).")
+                        action='store', dest='instance', type='string', default='ami-bd990e87',
+                        help="The instance-id to use for each server from (default: ami-bd990e87).")
     up_group.add_option('-t', '--type',  metavar="TYPE",  nargs=1,
                         action='store', dest='type', type='string', default='t1.micro',
                         help="The instance-type to use for each server (default: t1.micro).")
     up_group.add_option('-l', '--login',  metavar="LOGIN",  nargs=1,
-                        action='store', dest='login', type='string', default='newsapps',
-                        help="The ssh username name to use to connect to the new servers (default: newsapps).")
+                        action='store', dest='login', type='string', default='ec2-user',
+                        help="The ssh username name to use to connect to the new servers (default: ec2-user).")
 
     parser.add_option_group(up_group)
 
@@ -91,6 +92,13 @@ commands:
     attack_group.add_option('-c', '--concurrent', metavar="CONCURRENT", nargs=1,
                         action='store', dest='concurrent', type='int', default=100,
                         help="The number of concurrent connections to make to the target (default: 100).")
+    attack_group.add_option('-H', '--headers', metavar="HEADER", nargs=1,
+                        action='store', dest='headers', type='string', default="",
+                        help="HTTP headers to send to the target to attack. Multiple headers should be separated by semi-colons, e.g header1:value1;header2:value2")
+    attack_group.add_option('-p', '--proxy', metavar="proxy", action='store_true', dest='proxy',
+                        help="Whether or not to use an ssh proxy for connecting to your bees (default: false).")
+
+
 
     parser.add_option_group(attack_group)
 
@@ -120,7 +128,7 @@ commands:
         if not parsed.path:
             parser.error('It appears your URL lacks a trailing slash, this will disorient the bees. Please try again with a trailing slash.')
 
-        bees.attack(options.url, options.number, options.concurrent)
+        bees.attack(options.url, options.number, options.concurrent, options.headers, options.proxy)
     elif command == 'down':
         bees.down()
     elif command == 'report':

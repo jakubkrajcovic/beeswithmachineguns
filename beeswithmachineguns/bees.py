@@ -70,7 +70,12 @@ def _get_pem_path(key):
     return os.path.expanduser('~/.ssh/%s.pem' % key)
 
 def _get_region(zone):
-    return zone[:-1] # chop off the "d" in the "us-east-1d" to get the "Region"
+# Work out if a region has been specified instead of a zone
+# and do not chomp the last letter
+  if not zone[-1].isdigit() :
+    return zone[:-1] 
+  else :
+    return zone
 
 # Methods
 
@@ -94,7 +99,11 @@ def up(count, group, zone, image_id, instance_type, username, key_name):
 
     print 'Connecting to the hive.'
 
-    ec2_connection = boto.ec2.connect_to_region(_get_region(zone))
+    try:
+      ec2_connection = boto.ec2.connect_to_region(_get_region(zone))
+    except exception.ValueError, e:
+      print e
+      return e
 
     print 'Attempting to call up %i bees.' % count
 
@@ -146,9 +155,9 @@ def report():
 
     for reservation in reservations:
         instances.extend(reservation.instances)
-
+    
     for instance in instances:
-        print 'Bee %s: %s @ %s' % (instance.id, instance.state, instance.ip_address)
+        print 'Bee %s: %s @ %s (%s)' % (instance.id, instance.state, instance.ip_address, instance.public_dns_name)
 
 def down():
     """
@@ -181,20 +190,46 @@ def _attack(params):
     """
     print 'Bee %i is joining the swarm.' % params['i']
 
+    attack_binary = "ab"
+
     try:
+        # we need to use a proxy server for connecting      
+        if params['proxy']:
+          conf = paramiko.SSHConfig()
+          if not os.path.isfile(os.path.expanduser('~/.ssh/config')):
+            print "The ~/.ssh/config file does not exist. Please make sure it exists and that it contains the correct ProxyCommand configuration for %s" % params['instance_name']
+            return None
+
+          conf.parse(open(os.path.expanduser('~/.ssh/config')))
+          host = conf.lookup(params['instance_name'])
+          proxysocket = paramiko.ProxyCommand(host.get('proxycommand'))
+        else: 
+          proxysocket = None
+
         client = paramiko.SSHClient()
         client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
         client.connect(
             params['instance_name'],
             username=params['username'],
-            key_filename=_get_pem_path(params['key_name']))
+            key_filename=_get_pem_path(params['key_name']),
+            sock=proxysocket)
 
-        print 'Bee %i is firing his machine gun. Bang bang!' % params['i']
+        # make sure that we first have AB installed, otherwise fail with a helpful message
+        client_command = 'which %s' % attack_binary
+        stdin, stdout, stderr = client.exec_command(client_command)
+        if not attack_binary in stdout.read() :
+          print "Oh no! Your bee has been disarmed by the UN weapons commitee. (The apache benchmark tool (ab) is not installed)"
+          return None
 
-        stdin, stdout, stderr = client.exec_command('ab -r -n %(num_requests)s -c %(concurrent_requests)s -C "sessionid=NotARealSessionID" "%(url)s"' % params)
+        params['header_string'] = ''
+        if params['headers'] is not '':
+          for h in params['headers'].split(';'):
+            params['header_string'] += ' -H ' + '"' + h + '"'
 
+        client_command = 'ab -r -n %(num_requests)s -c %(concurrent_requests)s -C "sessionid=NotARealSessionID" %(header_string)s "%(url)s"' % params
+        print 'Bee %i is firing his machine gun. Bang bang! (%s)' % (params['i'],client_command)
+        stdin, stdout, stderr = client.exec_command(client_command)
         response = {}
-
         ab_results = stdout.read()
         ms_per_request_search = re.search('Time\ per\ request:\s+([0-9.]+)\ \[ms\]\ \(mean\)', ab_results)
 
@@ -275,7 +310,7 @@ def _print_results(results):
     else:
         print 'Mission Assessment: Swarm annihilated target.'
 
-def attack(url, n, c):
+def attack(url, n, c, headers, p):
     """
     Test the root url of this site.
     """
@@ -306,7 +341,10 @@ def attack(url, n, c):
     if c < instance_count:
         print 'bees: error: the number of concurrent requests must be at least %d (num. instances)' % instance_count
         return
-
+    if n < c:
+        print 'bees: error: the number of concurrent requests must be at most the same as number of requests (%s)' % n
+        return
+  
     requests_per_instance = int(float(n) / instance_count)
     connections_per_instance = int(float(c) / instance_count)
 
@@ -324,6 +362,8 @@ def attack(url, n, c):
             'num_requests': requests_per_instance,
             'username': username,
             'key_name': key_name,
+            'headers': headers,
+            'proxy': p,
         })
 
     print 'Stinging URL so it will be cached for the attack.'
